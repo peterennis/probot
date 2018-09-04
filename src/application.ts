@@ -1,19 +1,20 @@
+import { WebhookEvent } from '@octokit/webhooks'
 import express from 'express'
-import {EventEmitter} from 'promise-events'
-import {ApplicationFunction} from '.'
-import {Context} from './context'
-import {GitHubAPI} from './github'
-import {logger} from './logger'
-import {LoggerWithTarget, wrapLogger} from './wrap-logger'
+import { EventEmitter } from 'promise-events'
+import { ApplicationFunction } from '.'
+import { Context } from './context'
+import { GitHubAPI } from './github'
+import { logger } from './logger'
+import { LoggerWithTarget, wrapLogger } from './wrap-logger'
 
 // Some events can't get an authenticated client (#382):
-function isUnauthenticatedEvent (context: Context) {
-  return !context.payload.installation ||
-    (context.event === 'installation' && context.payload.action === 'deleted')
+function isUnauthenticatedEvent (event: WebhookEvent) {
+  return !event.payload.installation ||
+    (event.name === 'installation' && event.payload.action === 'deleted')
 }
 
 /**
- * The `app` parameter available to apps
+ * The `app` parameter available to `ApplicationFunction`s
  *
  * @property {logger} log - A logger
  */
@@ -22,38 +23,44 @@ export class Application {
   public app: () => string
   public cache: Cache
   public router: express.Router
-  public catchErrors?: boolean
+  public catchErrors: boolean
   public log: LoggerWithTarget
 
-  constructor (options: Options) {
-    const opts = options || {}
+  constructor (options?: Options) {
+    const opts = options || {} as any
     this.events = new EventEmitter()
     this.log = wrapLogger(logger, logger)
     this.app = opts.app
     this.cache = opts.cache
-    this.catchErrors = opts.catchErrors
+    this.catchErrors = opts.catchErrors || false
     this.router = opts.router || express.Router() // you can do this?
   }
 
   /**
-   * Loads a Probot plugin
-   * @param {function} plugin - Probot plugin to load
+   * Loads an ApplicationFunction into the current Application
+   * @param appFn - Probot application function to load
    */
-  public load (app: ApplicationFunction | ApplicationFunction[]) : Application {
-    if (Array.isArray(app)) {
-      app.forEach(a => this.load(a))
+  public load (appFn: ApplicationFunction | ApplicationFunction[]): Application {
+    if (Array.isArray(appFn)) {
+      appFn.forEach(a => this.load(a))
     } else {
-      app(this)
+      appFn(this)
     }
 
     return this
   }
 
   public async receive (event: WebhookEvent) {
+    if ((event as any).event) {
+      // tslint:disable-next-line:no-console
+      console.warn(new Error('Propery `event` is deprecated, use `name`'))
+      event = { name: (event as any).event, ...event }
+    }
+
     return Promise.all([
       this.events.emit('*', event),
-      this.events.emit(event.event, event),
-      this.events.emit(`${event.event}.${event.payload.action}`, event),
+      this.events.emit(event.name, event),
+      this.events.emit(`${ event.name }.${ event.payload.action }`, event)
     ])
   }
 
@@ -61,7 +68,7 @@ export class Application {
    * Get an {@link http://expressjs.com|express} router that can be used to
    * expose HTTP endpoints
    *
-   * @example
+   * ```
    * module.exports = app => {
    *   // Get an express router to expose new HTTP endpoints
    *   const route = app.route('/my-app');
@@ -74,9 +81,10 @@ export class Application {
    *     res.end('Hello World');
    *   });
    * };
+   * ```
    *
-   * @param {string} path - the prefix for the routes
-   * @returns {@link http://expressjs.com/en/4x/api.html#router|express.Router}
+   * @param path - the prefix for the routes
+   * @returns an [express.Router](http://expressjs.com/en/4x/api.html#router)
    */
   public route (path?: string): express.Router {
     if (path) {
@@ -93,7 +101,7 @@ export class Application {
    * which are fired for almost every significant action that users take on
    * GitHub.
    *
-   * @param {string} event - the name of the [GitHub webhook
+   * @param event - the name of the [GitHub webhook
    * event](https://developer.github.com/webhooks/#events). Most events also
    * include an "action". For example, the * [`issues`](
    * https://developer.github.com/v3/activity/events/types/#issuesevent)
@@ -102,11 +110,7 @@ export class Application {
    * Often, your bot will only care about one type of action, so you can append
    * it to the event name with a `.`, like `issues.closed`.
    *
-   * @param {Application~webhookCallback} callback - a function to call when the
-   * webhook is received.
-   *
-   * @example
-   *
+   * ```js
    * app.on('push', context => {
    *   // Code was just pushed.
    * });
@@ -114,12 +118,16 @@ export class Application {
    * app.on('issues.opened', context => {
    *   // An issue was just opened.
    * });
+   * ```
+   *
+   * @param callback - a function to call when the
+   * webhook is received.
    */
-  public on (eventName: string | string[], callback: (context: Context) => void) {
+  public on (eventName: string | string[], callback: (context: Context) => Promise<void>) {
     if (typeof eventName === 'string') {
 
-      return this.events.on(eventName, async (event: Context) => {
-        const log = this.log.child({name: 'event', id: event.id})
+      return this.events.on(eventName, async (event: WebhookEvent) => {
+        const log = this.log.child({ name: 'event', id: event.id })
 
         try {
           let github
@@ -128,14 +136,14 @@ export class Application {
             github = await this.auth()
             log.debug('`context.github` is unauthenticated. See https://probot.github.io/docs/github-api/#unauthenticated-events')
           } else {
-            github = await this.auth(event.payload.installation.id, log)
+            github = await this.auth(event.payload.installation!.id, log)
           }
 
           const context = new Context(event, github, log)
 
           await callback(context)
         } catch (err) {
-          log.error({err, event})
+          log.error({ err, event })
           if (!this.catchErrors) {
             throw err
           }
@@ -155,21 +163,21 @@ export class Application {
    * [`await`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/await)
    * to wait for the magic to happen.
    *
-   * @example
-   *
+   * ```js
    *  module.exports = (app) => {
    *    app.on('issues.opened', async context => {
    *      const github = await app.auth();
    *    });
    *  };
+   * ```
    *
-   * @param {number} [id] - ID of the installation, which can be extracted from
+   * @param id - ID of the installation, which can be extracted from
    * `context.payload.installation.id`. If called without this parameter, the
    * client wil authenticate [as the app](https://developer.github.com/apps/building-integrations/setting-up-and-registering-github-apps/about-authentication-options-for-github-apps/#authenticating-as-a-github-app)
    * instead of as a specific installation, which means it can only be used for
    * [app APIs](https://developer.github.com/v3/apps/).
    *
-   * @returns {Promise<github>} - An authenticated GitHub API client
+   * @returns An authenticated GitHub API client
    * @private
    */
   public async auth (id?: number, log = this.log): Promise<GitHubAPI> {
@@ -180,69 +188,40 @@ export class Application {
     const github = GitHubAPI({
       baseUrl: process.env.GHE_HOST && `https://${process.env.GHE_HOST}/api/v3`,
       debug: process.env.LOG_LEVEL === 'trace',
-      logger: log.child({name: 'github', installation: String(id)})
+      logger: log.child({ name: 'github', installation: String(id) })
     })
+
+    // Cache for 1 minute less than GitHub expiry
+    const installationTokenTTL = parseInt(process.env.INSTALLATION_TOKEN_TTL || '3540', 10)
 
     if (id) {
       const res = await this.cache.wrap(`app:${id}:token`, () => {
         log.trace(`creating token for installation`)
-        github.authenticate({type: 'app', token: this.app()})
+        github.authenticate({ type: 'app', token: this.app() })
 
-        return github.apps.createInstallationToken({installation_id: String(id)})
-      }, {ttl: 60 * 59}) // Cache for 1 minute less than GitHub expiry
+        return github.apps.createInstallationToken({ installation_id: String(id) })
+      }, { ttl: installationTokenTTL })
 
-      github.authenticate({type: 'token', token: res.data.token})
+      github.authenticate({ type: 'token', token: res.data.token })
     } else {
-      github.authenticate({type: 'app', token: this.app()})
+      github.authenticate({ type: 'app', token: this.app() })
     }
 
     return github
   }
 }
 
-export interface WebhookEvent {
-  event: string
-  id: number
-  payload: any
-  protocol: 'http' | 'https'
-  host: string
-  url: string
-}
-
 // The TypeScript definition for cache-manager does not export the Cache interface so we recreate it here
 export interface Cache {
-  wrap<T>(key: string, wrapper: (callback: (error: any, result: T) => void) => any, options: CacheConfig): Promise<any>;
+  wrap<T> (key: string, wrapper: (callback: (error: any, result: T) => void) => any, options: CacheConfig): Promise<any>
 }
 export interface CacheConfig {
-    ttl: number;
+  ttl: number
 }
 
 export interface Options {
   app: () => string
   cache: Cache
   router?: express.Router
-  catchErrors: boolean
+  catchErrors?: boolean
 }
-
-/**
- * Do the thing
- * @callback Application~webhookCallback
- * @param {Context} context - the context of the event that was triggered,
- *   including `context.payload`, and helpers for extracting information from
- *   the payload, which can be passed to GitHub API calls.
- *
- *  ```js
- *  module.exports = app => {
- *    app.on('push', context => {
- *      // Code was pushed to the repo, what should we do with it?
- *      app.log(context);
- *    });
- *  };
- *  ```
- */
-
-/**
- * A [GitHub webhook event](https://developer.github.com/webhooks/#events) payload
- *
- * @typedef payload
- */

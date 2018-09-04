@@ -73,7 +73,7 @@ const metadata = require('probot-metadata')
 module.exports = app => {
   app.on(['issues.edited', 'issue_comment.edited'], async context => {
     const kv = await metadata(context)
-    kv.set('edits', kv.get('edits') || 1)
+    await kv.set('edits', await kv.get('edits') || 1)
   })
 
   app.on('issues.closed', async context => {
@@ -121,3 +121,7 @@ module.exports = app => {
 ```
 
 Check out [probot/unfurl](https://github.com/probot/unfurl) to see it in action.
+
+## Community Created Extensions
+
+[probot-messages](https://github.com/dessant/probot-messages) was created by [@dessant](https://github.com/dessant) to deliver messages that require user action to ensure the correct operation of the app.

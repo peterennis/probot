@@ -1,15 +1,17 @@
+import Webhooks, { WebhookEvent } from '@octokit/webhooks'
 import Logger from 'bunyan'
 import cacheManager from 'cache-manager'
 import express from 'express'
-import {Application, WebhookEvent} from './application'
-import {Context} from './context'
-import {createApp} from './github-app'
-import {logger} from './logger'
-import {resolve} from './resolver'
-import {createServer} from './server'
-import {createWebhookProxy} from './webhook-proxy'
+import { Application } from './application'
+import { Context } from './context'
+import { createApp } from './github-app'
+import { logger } from './logger'
+import { resolve } from './resolver'
+import { createServer } from './server'
+import { createWebhookProxy } from './webhook-proxy'
 
-const Webhooks = require('@octokit/webhooks')
+// tslint:disable:no-var-requires
+// These needs types
 const logRequestErrors = require('./middleware/log-request-errors')
 
 const cache = cacheManager.caching({
@@ -17,37 +19,35 @@ const cache = cacheManager.caching({
   ttl: 60 * 60 // 1 hour
 })
 
-const defaultApps = [
-  require('./plugins/sentry'),
-  require('./plugins/stats'),
-  require('./plugins/default')
+const defaultAppFns: ApplicationFunction[] = [
+  require('./apps/default'),
+  require('./apps/sentry'),
+  require('./apps/stats')
 ]
+// tslint:enable:no-var-requires
 
 export class Probot {
   public server: express.Application
-  public webhook: any
+  public webhook: Webhooks
   public logger: Logger
 
   private options: Options
   private apps: Application[]
   private app: () => string
 
-  constructor(options: Options) {
+  constructor (options: Options) {
     options.webhookPath = options.webhookPath || '/'
     options.secret = options.secret || 'development'
     this.options = options
     this.logger = logger
     this.apps = []
-    this.webhook = new Webhooks({path: options.webhookPath, secret: options.secret})
+    this.webhook = new Webhooks({ path: options.webhookPath, secret: options.secret })
     this.app = createApp({ id: options.id, cert: options.cert })
-    this.server = createServer({webhook: this.webhook.middleware, logger})
+    this.server = createServer({ webhook: this.webhook.middleware, logger })
 
     // Log all received webhooks
-    this.webhook.on('*', (event: any) => {
-      const webhookEvent = { ...event, event: event.name }
-      delete webhookEvent.name
-
-      this.receive(webhookEvent)
+    this.webhook.on('*', (event: WebhookEvent) => {
+      return this.receive(event)
     })
 
     // Log all webhook errors
@@ -55,48 +55,44 @@ export class Probot {
   }
 
   public errorHandler (err: Error) {
-    switch (err.message) {
-      case 'X-Hub-Signature does not match blob signature':
-      case 'No X-Hub-Signature found on request':
-        logger.error('Go to https://github.com/settings/apps/YOUR_APP and verify that the Webhook secret matches the value of the WEBHOOK_SECRET environment variable.')
-        break
-      case 'error:0906D06C:PEM routines:PEM_read_bio:no start line':
-      case '{"message":"A JSON web token could not be decoded","documentation_url":"https://developer.github.com/v3"}':
-        logger.error('Your private key (usually a .pem file) is not correct. Go to https://github.com/settings/apps/YOUR_APP and generate a new PEM file. If you\'re deploying to Now, visit https://probot.github.io/docs/deployment/#now.')
-        break
-      default:
-        logger.error(err)
+    const errMessage = err.message.toLowerCase()
+    if (errMessage.includes('x-hub-signature')) {
+      logger.error({ err }, 'Go to https://github.com/settings/apps/YOUR_APP and verify that the Webhook secret matches the value of the WEBHOOK_SECRET environment variable.')
+    } else if (errMessage.includes('pem') || errMessage.includes('json web token')) {
+      logger.error({ err }, 'Your private key (usually a .pem file) is not correct. Go to https://github.com/settings/apps/YOUR_APP and generate a new PEM file. If you\'re deploying to Now, visit https://probot.github.io/docs/deployment/#now.')
+    } else {
+      logger.error(err)
     }
   }
 
   public receive (event: WebhookEvent) {
-    this.logger.debug({event}, 'Webhook received')
+    this.logger.debug({ event }, 'Webhook received')
     return Promise.all(this.apps.map(app => app.receive(event)))
   }
 
-  public load (appFunction: string | ApplicationFunction) {
-    if (typeof appFunction === 'string') {
-      appFunction = resolve(appFunction) as ApplicationFunction
+  public load (appFn: string | ApplicationFunction) {
+    if (typeof appFn === 'string') {
+      appFn = resolve(appFn) as ApplicationFunction
     }
 
-    const app = new Application({app: this.app, cache, catchErrors: true})
+    const app = new Application({ app: this.app, cache, catchErrors: true })
 
     // Connect the router from the app to the server
     this.server.use(app.router)
 
-    // Initialize the plugin
-    app.load(appFunction)
+    // Initialize the ApplicationFunction
+    app.load(appFn)
     this.apps.push(app)
 
     return app
   }
 
-  public setup (apps: Array<string | ApplicationFunction>) {
+  public setup (appFns: Array<string | ApplicationFunction>) {
     // Log all unhandled rejections
     process.on('unhandledRejection', this.errorHandler)
 
-    // Load the given apps along with the default apps
-    apps.concat(defaultApps).forEach(app => this.load(app))
+    // Load the given appFns along with the default ones
+    appFns.concat(defaultAppFns).forEach(appFn => this.load(appFn))
 
     // Register error handler as the last middleware
     this.server.use(logRequestErrors)
@@ -108,7 +104,7 @@ export class Probot {
         logger,
         path: this.options.webhookPath,
         port: this.options.port,
-        url: this.options.webhookProxy,
+        url: this.options.webhookProxy
       })
     }
 
