@@ -20,9 +20,9 @@ const hint = `please use:
  * @returns Private key
  * @private
  */
-export function findPrivateKey (filepath?: string): Buffer | string | null {
+export function findPrivateKey (filepath?: string): string | null {
   if (filepath) {
-    return fs.readFileSync(filepath)
+    return fs.readFileSync(filepath, 'utf8')
   }
   if (process.env.PRIVATE_KEY) {
     let cert = process.env.PRIVATE_KEY
@@ -39,7 +39,7 @@ export function findPrivateKey (filepath?: string): Buffer | string | null {
       return cert.replace(/\\n/g, '\n')
     }
 
-    throw new Error('The contents of \`PRIVATE_KEY\` could not be validated. Please check to ensure you have copied the contents of the .pem file correctly.')
+    throw new Error('The contents of `PRIVATE_KEY` could not be validated. Please check to ensure you have copied the contents of the .pem file correctly.')
   }
   if (process.env.PRIVATE_KEY_PATH) {
     if (fs.existsSync(process.env.PRIVATE_KEY_PATH)) {

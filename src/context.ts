@@ -1,8 +1,35 @@
-import { WebhookEvent, WebhookPayloadWithRepository } from '@octokit/webhooks'
+import Webhooks, { PayloadRepository } from '@octokit/webhooks'
 import yaml from 'js-yaml'
 import path from 'path'
 import { GitHubAPI } from './github'
 import { LoggerWithTarget } from './wrap-logger'
+
+interface WebhookPayloadWithRepository {
+  [key: string]: any
+  repository?: PayloadRepository
+  issue?: {
+    [key: string]: any
+    number: number
+    html_url?: string
+    body?: string
+  }
+  pull_request?: {
+    [key: string]: any
+    number: number
+    html_url?: string
+    body?: string
+  }
+  sender?: {
+    [key: string]: any
+    type: string
+  }
+  action?: string
+  installation?: {
+    id: number
+    [key: string]: any
+  }
+}
+
 /**
  * The context of the event that was triggered, including the payload and
  * helpers for extracting information can be passed to GitHub API calls.
@@ -20,10 +47,10 @@ import { LoggerWithTarget } from './wrap-logger'
  * @property {logger} log - A logger
  */
 
-export class Context implements WebhookEvent {
+export class Context<E extends WebhookPayloadWithRepository = any> implements Webhooks.WebhookEvent<E> {
   public name: string
   public id: string
-  public payload: WebhookPayloadWithRepository
+  public payload: E
   public protocol?: 'http' | 'https'
   public host?: string
   public url?: string
@@ -31,7 +58,7 @@ export class Context implements WebhookEvent {
   public github: GitHubAPI
   public log: LoggerWithTarget
 
-  constructor (event: WebhookEvent, github: GitHubAPI, log: LoggerWithTarget) {
+  constructor (event: Webhooks.WebhookEvent<E>, github: GitHubAPI, log: LoggerWithTarget) {
     this.name = event.name
     this.id = event.id
     this.payload = event.payload
@@ -147,7 +174,7 @@ export class Context implements WebhookEvent {
       const config = yaml.safeLoad(Buffer.from(res.data.content, 'base64').toString()) || {}
       return Object.assign({}, defaultConfig, config)
     } catch (err) {
-      if (err.code === 404) {
+      if (err.status === 404) {
         if (defaultConfig) {
           return defaultConfig
         }

@@ -1,14 +1,13 @@
- import { WebhookEvent } from '@octokit/webhooks'
-import cacheManager from 'cache-manager'
-import nock from 'nock'
+import Webhooks from '@octokit/webhooks'
 
 import { Application } from '../src/application'
 import { Context } from '../src/context'
+import * as GitHubApiModule from '../src/github'
 import { logger } from '../src/logger'
 
 describe('Application', () => {
   let app: Application
-  let event: WebhookEvent
+  let event: Webhooks.WebhookEvent<any>
   let output: any
 
   beforeAll(() => {
@@ -75,7 +74,7 @@ describe('Application', () => {
     })
 
     it('calls callback x amount of times when an array of x actions is passed', async () => {
-      const event2: WebhookEvent = {
+      const event2: Webhooks.WebhookEvent<any> = {
         id: '123',
         name: 'arrayTest',
         payload: {
@@ -227,6 +226,27 @@ describe('Application', () => {
     })
   })
 
+  describe('auth', () => {
+    it('throttleOptions', async () => {
+      const appWithRedis = new Application({
+        throttleOptions: {
+          foo: 'bar'
+        }
+      } as any)
+
+      Object.defineProperty(GitHubApiModule, 'GitHubAPI', {
+        value (options: any) {
+          expect(options.throttle.id).toBe(1)
+          expect(options.throttle.foo).toBe('bar')
+          return 'github mock'
+        }
+      })
+
+      const result = await appWithRedis.auth(1)
+      expect(result).toBe('github mock')
+    })
+  })
+
   describe('error handling', () => {
     let error: any
 
@@ -263,118 +283,6 @@ describe('Application', () => {
       expect(output.length).toBe(1)
       expect(output[0].err.message).toEqual('testing')
       expect(output[0].event.id).toEqual(event.id)
-    })
-  })
-
-  describe('deprecations', () => {
-    test('receive() accepts param with {event}', async () => {
-      const spy = jest.fn()
-      app.events.on('deprecated', spy)
-      await app.receive({ event: 'deprecated', payload: { action: 'test' } } as any)
-      expect(spy).toHaveBeenCalled()
-    })
-
-    test('receive() accepts param with {name,event}', async () => {
-      const spy = jest.fn()
-      app.events.on('real-event-name', spy)
-      await app.receive({ name: 'real-event-name', event: 'deprecated', payload: { action: 'test' } } as any)
-      expect(spy).toHaveBeenCalled()
-    })
-  })
-
-  describe('auth cache', () => {
-    let scopeInstall: nock.Scope
-    let scopeData: nock.Scope
-
-    const cleanGlobals = () => {
-      delete process.env.INSTALLATION_TOKEN_TTL
-      nock.cleanAll()
-    }
-
-    beforeEach(() => {
-      cleanGlobals()
-
-      const cache = cacheManager.caching({
-        store: 'memory',
-        ttl: 60 * 60 // 1 hour
-      })
-      app = new Application({ cache } as any)
-      app.app = () => 'app-bearer-authorization-token'
-
-      scopeInstall = nock('https://api.github.com')
-        .post('/app/installations/1/access_tokens')
-        .reply(200, { token: 'installation-bearer-authorization-token' })
-      scopeData = nock('https://api.github.com')
-        .matchHeader('authorization', 'token installation-bearer-authorization-token')
-        .get('/orgs/myorg')
-        .reply(200, {})
-    })
-
-    afterEach(() => {
-      expect(scopeInstall.isDone()).toEqual(true)
-      expect(scopeData.isDone()).toEqual(true)
-
-      cleanGlobals()
-    })
-
-    it('requests an installation token once for one event', async () => {
-      // Receive first event
-      app.on('test.foo', async context => {
-        await context.github.orgs.get({ org: 'myorg' })
-      })
-
-      await app.receive(event)
-    })
-
-    it('requests an installation token once for two events', async () => {
-      // Receive first event
-      app.on('test.foo', async context => {
-        await context.github.orgs.get({ org: 'myorg' })
-      })
-      await app.receive(event)
-
-      // Receive second event
-      const scopeInstallTwo = nock('https://api.github.com')
-        .post('/app/installations/1/access_tokens')
-          .reply(200, { token: 'token-should-not-be-requested' })
-      const scopeDataTwo = nock('https://api.github.com')
-        .matchHeader('authorization', 'token installation-bearer-authorization-token')
-        .get('/orgs/myorg')
-          .reply(200, {})
-      await app.receive(event)
-
-      // we should have not requested a second token, and just used the first one
-      expect(scopeInstallTwo.isDone()).toEqual(false)
-      expect(scopeDataTwo.isDone()).toEqual(true)
-    })
-
-    it('requests an installation token once for each event if not cached', async () => {
-      // Only cache token for 1 second
-      process.env.INSTALLATION_TOKEN_TTL = '1'
-
-      // Receive first event
-      app.on('test.foo', async context => {
-        await context.github.orgs.get({ org: 'myorg' })
-      })
-      await app.receive(event)
-
-      // Sleep longer than ttl value to let token cache expire
-      const sleep = async () => new Promise(resolve => setTimeout(resolve, 1200))
-      await sleep()
-
-      // Receive second event
-      const scopeInstallTwo = nock('https://api.github.com')
-        .post('/app/installations/1/access_tokens')
-          .reply(200, { token: 'second-installation-token' })
-      const scopeDataTwo = nock('https://api.github.com')
-        .matchHeader('authorization', 'token second-installation-token')
-        .get('/orgs/myorg')
-          .reply(200, {})
-      await app.receive(event)
-
-      // our second token should have been requested and used
-      expect(scopeInstallTwo.isDone()).toEqual(true)
-      expect(scopeDataTwo.isDone()).toEqual(true)
     })
   })
 })

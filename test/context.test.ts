@@ -1,12 +1,14 @@
 import fs = require('fs')
 import path = require('path')
 
-import { WebhookEvent } from '@octokit/webhooks'
+import Webhooks from '@octokit/webhooks'
 import { Context } from '../src/context'
 import { GitHubAPI, OctokitError } from '../src/github'
 
+import { createMockResponse } from './fixtures/octokit/mock-response'
+
 describe('Context', () => {
-  let event: WebhookEvent
+  let event: Webhooks.WebhookEvent<any>
   let context: Context
 
   beforeEach(() => {
@@ -94,7 +96,7 @@ describe('Context', () => {
     function readConfig (fileName: string) {
       const configPath = path.join(__dirname, 'fixtures', 'config', fileName)
       const content = fs.readFileSync(configPath, { encoding: 'utf8' })
-      return { data: { content: Buffer.from(content).toString('base64') } }
+      return { content: Buffer.from(content).toString('base64') }
     }
 
     beforeEach(() => {
@@ -103,7 +105,7 @@ describe('Context', () => {
     })
 
     it('gets a valid configuration', async () => {
-      github.repos.getContents = jest.fn().mockReturnValue(Promise.resolve(readConfig('basic.yml')))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(createMockResponse(readConfig('basic.yml')))
       const config = await context.config('test-file.yml')
 
       expect(github.repos.getContents).toHaveBeenCalledWith({
@@ -120,26 +122,24 @@ describe('Context', () => {
 
     it('returns null when the file is missing', async () => {
       const error: OctokitError = {
-        code: 404,
         message: 'An error occurred',
         name: 'OctokitError',
-        status: 'Not Found'
+        status: 404
       }
 
-      github.repos.getContents = jest.fn().mockReturnValue(Promise.reject(error))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(Promise.reject(error))
 
       expect(await context.config('test-file.yml')).toBe(null)
     })
 
     it('returns the default config when the file is missing and default config is passed', async () => {
       const error: OctokitError = {
-        code: 404,
         message: 'An error occurred',
         name: 'OctokitError',
-        status: 'Not Found'
+        status: 404
       }
 
-      github.repos.getContents = jest.fn().mockReturnValue(Promise.reject(error))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(Promise.reject(error))
       const defaultConfig = {
         bar: 7,
         baz: 11,
@@ -150,7 +150,7 @@ describe('Context', () => {
     })
 
     it('throws when the configuration file is malformed', async () => {
-      github.repos.getContents = jest.fn().mockReturnValue(Promise.resolve(readConfig('malformed.yml')))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(createMockResponse(readConfig('malformed.yml')))
 
       let e
       let contents
@@ -166,7 +166,7 @@ describe('Context', () => {
     })
 
     it('throws when loading unsafe yaml', async () => {
-      github.repos.getContents = jest.fn().mockReturnValue(readConfig('evil.yml'))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(createMockResponse(readConfig('evil.yml')))
 
       let e
       let config
@@ -182,7 +182,7 @@ describe('Context', () => {
     })
 
     it('returns an empty object when the file is empty', async () => {
-      github.repos.getContents = jest.fn().mockReturnValue(readConfig('empty.yml'))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(createMockResponse(readConfig('empty.yml')))
 
       const contents = await context.config('test-file.yml')
 
@@ -190,7 +190,7 @@ describe('Context', () => {
     })
 
     it('overwrites default config settings', async () => {
-      github.repos.getContents = jest.fn().mockReturnValue(Promise.resolve(readConfig('basic.yml')))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(createMockResponse(readConfig('basic.yml')))
       const config = await context.config('test-file.yml', { foo: 10 })
 
       expect(github.repos.getContents).toHaveBeenCalledWith({
@@ -206,7 +206,7 @@ describe('Context', () => {
     })
 
     it('uses default settings to fill in missing options', async () => {
-      github.repos.getContents = jest.fn().mockReturnValue(Promise.resolve(readConfig('missing.yml')))
+      jest.spyOn(github.repos, 'getContents').mockReturnValue(createMockResponse(readConfig('missing.yml')))
       const config = await context.config('test-file.yml', { bar: 7 })
 
       expect(github.repos.getContents).toHaveBeenCalledWith({
