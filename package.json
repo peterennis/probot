@@ -65,7 +65,7 @@
     "bunyan-sentry-stream": "^1.1.0",
     "cache-manager": "^2.4.0",
     "commander": "^2.19.0",
-    "dotenv": "~6.2.0",
+    "dotenv": "~7.0.0",
     "eventsource": "^1.0.7",
     "express": "^4.16.2",
     "express-async-errors": "^3.0.0",
@@ -120,7 +120,7 @@
     "tslint-config-prettier": "^1.10.0",
     "tslint-config-standard": "^8.0.0",
     "typedoc": "^0.14.0",
-    "typescript": "^2.7.2"
+    "typescript": "^2.9.2"
   },
   "standard": {
     "env": [
