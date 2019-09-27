@@ -99,7 +99,9 @@ describe('Context', () => {
     let github: GitHubAPI
 
     function responseFromString (content: string) {
-      return createMockResponse({ content: Buffer.from(content).toString('base64') })
+      return createMockResponse({
+        content: Buffer.from(content).toString('base64')
+      }) as ReturnType<typeof github.repos.getContents>
     }
 
     function responseFromConfig (fileName: string) {
