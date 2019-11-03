@@ -23,8 +23,14 @@ export const ProbotOctokit = Octokit
 export function GitHubAPI (options: Options = { Octokit: ProbotOctokit } as any) {
   const octokit = new options.Octokit(Object.assign(options, {
     throttle: Object.assign({
-      onAbuseLimit: (retryAfter: number) => options.logger.warn(`Abuse limit hit, retrying in ${retryAfter} seconds`),
-      onRateLimit: (retryAfter: number) => options.logger.warn(`Rate limit hit, retrying in ${retryAfter} seconds`)
+      onAbuseLimit: (retryAfter: number) => {
+        options.logger.warn(`Abuse limit hit, retrying in ${retryAfter} seconds`)
+        return true
+      },
+      onRateLimit: (retryAfter: number) => {
+        options.logger.warn(`Rate limit hit, retrying in ${retryAfter} seconds`)
+        return true
+      }
     }, options.throttle)
   })) as GitHubAPI
 
@@ -64,7 +70,7 @@ export interface OctokitError extends Error {
 interface Paginate extends Octokit.Paginate {
   (
     responsePromise: Promise<Octokit.AnyResponse>,
-    callback?: (response: Octokit.AnyResponse) => any
+    callback?: (response: Octokit.AnyResponse, done: () => void) => any
   ): Promise<any[]>
 }
 
