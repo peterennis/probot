@@ -86,7 +86,7 @@
     "supports-color": "^7.0.0",
     "update-dotenv": "^1.1.0",
     "update-notifier": "^4.0.0",
-    "uuid": "^3.2.1"
+    "uuid": "^7.0.0"
   },
   "devDependencies": {
     "@types/bunyan": "^1.8.4",
@@ -106,7 +106,7 @@
     "@types/resolve": "^1.14.0",
     "@types/semver": "^7.1.0",
     "@types/supertest": "^2.0.4",
-    "@types/uuid": "^3.4.3",
+    "@types/uuid": "^7.0.0",
     "connect-sse": "^1.2.0",
     "eslint": "^6.0.0",
     "eslint-plugin-markdown": "^1.0.0-beta.8",
