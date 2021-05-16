@@ -1,18 +1,25 @@
-import path from 'path'
-import { Application } from '../application'
+import path from "path";
+import { ApplicationFunctionOptions, Probot } from "../index";
 
-export = (app: Application) => {
-  const route = app.route()
+export function defaultApp(
+  app: Probot,
+  { getRouter }: ApplicationFunctionOptions
+) {
+  if (!getRouter) {
+    throw new Error("getRouter() is required for defaultApp");
+  }
 
-  route.get('/probot', (req, res) => {
-    let pkg
+  const router = getRouter();
+
+  router.get("/probot", (req, res) => {
+    let pkg;
     try {
-      pkg = require(path.join(process.cwd(), 'package.json'))
+      pkg = require(path.join(process.cwd(), "package.json"));
     } catch (e) {
-      pkg = {}
+      pkg = {};
     }
 
-    res.render('probot.hbs', pkg)
-  })
-  route.get('/', (req, res, next) => res.redirect('/probot'))
+    res.render("probot.hbs", pkg);
+  });
+  router.get("/", (req, res, next) => res.redirect("/probot"));
 }
